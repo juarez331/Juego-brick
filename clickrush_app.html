@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Click Rush</title>
+<meta name="theme-color" content="#8000ff">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  body {
+    margin: 0;
+    background: black;
+    overflow: hidden;
+  }
+
+  canvas {
+    display: block;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+
+  let score = 0;
+  let explosion = null;
+  let stars = [];
+
+function createStars() {
+  stars = [];
+  for (let i = 0; i < 120; i++) {
+    stars.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      size: Math.random() * 2,
+      speed: Math.random() * 0.5 + 0.2
+    });
+  }
+}
+
+  let timeLeft = 30;
+  let gameOver = false;
+  let levelCompleted = false;
+  let gameStarted = false;
+  let level = 1;
+  document.addEventListener("keydown", function(e) {
+
+  if (e.key === "4") {
+  level = 4;
+  score = 0;
+  timeLeft = 20;
+  gameStarted = true;
+  gameOver = false;
+  bullet = null;
+  bullet2 = null;
+}
+
+  if (e.key === "5") {
+  level = 5;
+  score = 0;
+  timeLeft = 20;
+  gameStarted = true;
+  gameOver = false;
+  bullet = null;
+  bullet2 = null;
+}
+
+  if (e.key === "6") {
+  level = 6;
+  score = 0;
+  timeLeft = 20;
+  gameStarted = true;
+  gameOver = false;
+  bullet = null;
+  bullet2 = null;
+  bullet3 = null;
+}
+
+  if (e.key === "7") {
+  level = 7;
+  score = 0;
+  timeLeft = 20;
+  gameStarted = true;
+  gameOver = false;
+  bullet = null;
+  bullet2 = null;
+  bullet3 = null;
+  bullet4 = null;
+}
+
+  if (e.key === "1") {
+  level = 1;
+  score = 0;
+  timeLeft = 30;
+  gameStarted = true;
+  gameOver = false;
+  bullet = null;
+}
+
+  if (e.key === "2") {
+  level = 2;
+  score = 0;
+  timeLeft = 20;
+  gameStarted = true;
+  gameOver = false;
+  bullet = null;
+}
+
+  if (e.key === "3") {
+    level = 3;
+    score = 0;
+    timeLeft = 20;
+    gameStarted = true;
+    gameOver = false;
+    bullet = null;
+  }
+
+});
+
+  let enemy = {
+    
+  x: 0,
+  y: 60,
+  width: 80,
+  height: 40,
+  direction: 1
+};
+
+let enemy2 = {
+  x: 20,
+  y: canvas.height / 2,
+  width: 1,
+  height: 40,
+  direction: 1
+};          
+
+let enemy3 = {
+  x: 0,
+  y: canvas.height / 2,
+  width: 1,
+  height: 40,
+  direction: -1
+};
+
+let enemy4 = {
+  x: canvas.width / 2,
+  y: 0,
+  width: 80,
+  height: 40,
+  direction: 1
+};
+
+  let bullet = null;
+  let bullet2 = null;
+  let bullet3 = null;
+  let bullet4 = null;
+  let showTarget = true;
+
+  const target = {
+    x: 0,
+    y: 0,
+    radius: 25
+  };
+  
+  const topMargin = 80;
+
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    target.x = canvas.width / 2;
+    target.y = canvas.height / 2;
+    enemy.x = canvas.width / 2 - enemy.width / 2;
+    enemy2.x = 10;
+    enemy2.y = canvas.height / 2;
+    enemy3.x = canvas.width - 20;
+    enemy3.y = canvas.height / 2;
+    enemy4.x = canvas.width / 2 - enemy4.width / 2;
+    enemy4.y = canvas.height - 50;
+
+    createStars();
+  }
+
+  window.addEventListener("resize", resizeCanvas);
+
+  function drawBackground() {
+    ctx.fillStyle = "#0a0a0a";
+    ctx.fillStyle = "black";
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+ctx.fillStyle = "white";
+
+stars.forEach(star => {
+  ctx.beginPath();
+  ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+  ctx.fill();
+
+  star.y += star.speed;
+
+  if (star.y > canvas.height) {
+    star.y = 0;
+    star.x = Math.random() * canvas.width;
+    }
+  });
+  }
+
+  function drawTarget() {
+    if (!showTarget) return;
+    ctx.beginPath();
+
+    const gradient = ctx.createRadialGradient(
+      target.x,
+      target.y,
+      10,
+      target.x,
+      target.y,
+      target.radius
+    );
+
+    gradient.addColorStop(0, "#ffffff");
+    gradient.addColorStop(0.3, "#ff00ff");
+    gradient.addColorStop(1, "#8000ff");
+
+    ctx.fillStyle = gradient;
+    ctx.shadowColor = "#ff00ff";
+    ctx.shadowBlur = 20;
+
+    ctx.arc(target.x, target.y, target.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.closePath();
+
+    ctx.shadowBlur = 0;
+  }
+
+  function drawExplosion() {
+    if (!explosion) return;
+
+    ctx.beginPath();
+    ctx.arc(explosion.x, explosion.y, explosion.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = "cyan";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.closePath();
+
+    explosion.radius += 5;
+
+    if (explosion.radius > 60) {
+      explosion = null;
+    }
+  }
+
+  function drawScore() {
+    ctx.fillStyle = "lime";
+    let fontSize = window.innerWidth < 600 ? 12 : 20;
+ctx.font = fontSize + "px 'Press Start 2P'";
+    ctx.textAlign = "left";
+    ctx.fillText("Puntos: " + score, 20, 30);
+  }
+
+  function drawTimer() {
+    ctx.fillStyle = "cyan";
+    let fontSize = window.innerWidth < 600 ? 12 : 20;
+ctx.font = fontSize + "px 'Press Start 2P'";
+    ctx.textAlign = "right";
+    ctx.fillText("Tiempo: " + timeLeft,  canvas.width - 20, 30);
+  }
+
+  function drawGoal() {
+    ctx.fillStyle = "white";
+    let fontSize = window.innerWidth < 600 ? 12 : 20;
+    ctx.font = fontSize + "px 'Press Start 2P'";
+    ctx.textAlign = "right";
+    ctx.fillText("Meta: 20", canvas.width - 20, 60);
+  }
+
+  function drawLevel() {
+  ctx.fillStyle = "yellow";
+  let fontSize = window.innerWidth < 600 ? 12 : 20;
+  ctx.font = fontSize + "px 'Press Start 2P'";
+  ctx.textAlign = "left";
+  ctx.fillText("Nivel: " + level, 20, 60);
+}
+
+  function drawEnemy() {
+  ctx.save();
+
+  ctx.translate(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+
+  // cuerpo principal
+  ctx.fillStyle = "#6666ff";
+  ctx.beginPath();
+  ctx.moveTo(0, 12);
+  ctx.lineTo(24, -12);
+  ctx.lineTo(-24, -12);
+  ctx.closePath();
+  ctx.fill();
+
+  // cabina
+  ctx.fillStyle = "#00ffff";
+  ctx.beginPath();
+  ctx.arc(0, -5, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+  if (level === 3 || level === 5 || level === 6 || level === 7) {
+  enemy.x += 3 * enemy.direction;
+
+  if (enemy.x + enemy.width > canvas.width || enemy.x < 0) {
+    enemy.direction *= -1;
+  }
+}
+}
+
+function drawEnemy2() {
+
+  if (level !== 4 && level !== 5 && level !== 6 && level !== 7) return;
+
+  ctx.save();
+
+  ctx.translate(enemy2.x + enemy2.width / 2, enemy2.y + enemy2.height / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.rotate(-Math.PI / 2);
+  
+
+  ctx.rotate(Math.PI / 2);
+
+  ctx.fillStyle = "#ff4444";
+  ctx.beginPath();
+  ctx.moveTo(0, 12);
+ctx.lineTo(24, -12);
+ctx.lineTo(-24, -12);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#ffff00";
+  ctx.beginPath();
+  ctx.arc(0, -5, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+
+  enemy2.y += 3 * enemy2.direction;
+
+  if (enemy2.y < 100 || enemy2.y > canvas.height - 100) {
+    enemy2.direction *= -1;
+  }
+
+}
+
+function drawEnemy3() {
+
+  if (level !== 6 && level !== 7) return;
+
+  ctx.save();
+
+  ctx.translate(enemy3.x + enemy3.width / 2, enemy3.y + enemy3.height / 2);
+  ctx.rotate(Math.PI / 2);
+
+  ctx.fillStyle = "#44ff44";
+  ctx.beginPath();
+  ctx.moveTo(0, 12);
+  ctx.lineTo(24, -12);
+  ctx.lineTo(-24, -12);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(0, -5, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+
+  enemy3.y += 3 * enemy3.direction;
+
+  if (enemy3.y < 100 || enemy3.y > canvas.height - 100) {
+    enemy3.direction *= -1;
+  }
+
+}
+
+function drawEnemy4() {
+
+  if (level !== 7) return;
+
+  ctx.save();
+
+  ctx.translate(enemy4.x + enemy4.width / 2, enemy4.y + enemy4.height / 2);
+  
+  // cuerpo principal (hacia arriba)
+  ctx.fillStyle = "#ff00ff";
+  ctx.beginPath();
+  ctx.moveTo(0, -12);
+  ctx.lineTo(24, 12);
+  ctx.lineTo(-24, 12);
+  ctx.closePath();
+  ctx.fill();
+
+  // cabina
+  ctx.fillStyle = "#ffffff";
+  ctx.beginPath();
+  ctx.arc(0, 5, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+
+  enemy4.x += 3 * enemy4.direction;
+
+  if (enemy4.x + enemy4.width > canvas.width || enemy4.x < 0) {
+    enemy4.direction *= -1;
+  }
+
+}
+
+  function shootBullet() {
+
+  const dx = target.x - (enemy.x + enemy.width / 2);
+  const dy = target.y - (enemy.y + enemy.height / 2);
+
+  const distance = Math.sqrt(dx * dx + dy * dy);
+
+  const speed = 2;
+
+  bullet = {
+    x: enemy.x + enemy.width / 2,
+    y: enemy.y + enemy.height / 2,
+    vx: (dx / distance) * speed,
+    vy: (dy / distance) * speed
+  };
+}
+
+  function drawBullet() {
+
+  if (!bullet) return;
+
+  ctx.fillStyle = "yellow";
+  ctx.beginPath();
+  ctx.arc(bullet.x, bullet.y, 6, 0, Math.PI * 2);
+  ctx.fill();
+
+  bullet.x += bullet.vx;
+  bullet.y += bullet.vy;
+
+  const dist = Math.sqrt(
+    (bullet.x - target.x) ** 2 +
+    (bullet.y - target.y) ** 2
+  );
+
+ if (dist < target.radius) {
+  score--;
+  bullet = null;
+}
+
+// solo desaparece cuando sale de la pantalla
+if (
+  bullet &&
+  (bullet.x < 0 ||
+   bullet.x > canvas.width ||
+   bullet.y < 0 ||
+   bullet.y > canvas.height)
+) {
+  bullet = null;
+}
+
+  }
+
+
+  function drawBullet2() {
+
+  if (!bullet2) return;
+
+  ctx.fillStyle = "red";
+  ctx.beginPath();
+  ctx.arc(bullet2.x, bullet2.y, 6, 0, Math.PI * 2);
+  ctx.fill();
+
+  bullet2.x += bullet2.vx;
+  bullet2.y += bullet2.vy;
+
+  const dist = Math.sqrt(
+    (bullet2.x - target.x) ** 2 +
+    (bullet2.y - target.y) ** 2
+  );
+
+  if (dist < target.radius) {
+    score--;
+    bullet2 = null;
+  }
+  
+  if (
+  bullet2 &&
+  (bullet2.x < 0 ||
+   bullet2.x > canvas.width ||
+   bullet2.y < 0 ||
+   bullet2.y > canvas.height)
+) {
+  bullet2 = null;
+}
+
+}
+
+function drawBullet3() {
+
+if (!bullet3) return;
+
+ctx.fillStyle = "lime";
+ctx.beginPath();
+ctx.arc(bullet3.x, bullet3.y, 6, 0, Math.PI * 2);
+ctx.fill();
+
+bullet3.x += bullet3.vx;
+bullet3.y += bullet3.vy;
+
+const dist = Math.sqrt(
+  (bullet3.x - target.x) ** 2 +
+  (bullet3.y - target.y) ** 2
+);
+
+if (dist < target.radius) {
+  score--;
+  bullet3 = null;
+}
+
+
+
+  if (bullet3 && (bullet3.x < 0 || bullet3.x > canvas.width || bullet3.y < 0 || bullet3.y > canvas.height)) {
+  bullet3 = null;
+}
+
+}
+
+function drawBullet4() {
+
+if (!bullet4) return;
+
+ctx.fillStyle = "magenta";
+ctx.beginPath();
+ctx.arc(bullet4.x, bullet4.y, 6, 0, Math.PI * 2);
+ctx.fill();
+
+bullet4.x += bullet4.vx;
+bullet4.y += bullet4.vy;
+
+const dist = Math.sqrt(
+  (bullet4.x - target.x) ** 2 +
+  (bullet4.y - target.y) ** 2
+);
+
+if (dist < target.radius) {
+  score--;
+  bullet4 = null;
+}
+
+if (bullet4 && (bullet4.x < 0 || bullet4.x > canvas.width || bullet4.y < 0 || bullet4.y > canvas.height)) {
+  bullet4 = null;
+}
+
+}
+
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    drawBackground();
+    drawTarget();
+    drawExplosion();
+    drawScore();
+    drawTimer();
+    drawLevel();
+    drawGoal();
+
+    if (!levelCompleted && !gameOver) {
+  drawEnemy();
+}
+
+    if (!levelCompleted && !gameOver) {
+  drawEnemy2();
+}
+
+    if (!levelCompleted && !gameOver) {
+  drawEnemy3();
+}
+
+    if (!levelCompleted && !gameOver) {
+  drawEnemy4();
+}
+
+    if (!levelCompleted && !gameOver) {
+  drawBullet();
+}
+
+if (!levelCompleted && !gameOver) {
+  drawBullet2();
+}
+
+if (!levelCompleted && !gameOver) {
+  drawBullet3();
+}
+
+if (!levelCompleted && !gameOver) {
+  drawBullet4();
+}
+
+    if (!gameStarted) {
+
+  ctx.fillStyle = "white";
+  let fontSize = window.innerWidth < 600 ? 18 : 30;
+  ctx.font = fontSize + "px 'Press Start 2P'";
+  ctx.textAlign = "center";
+
+  ctx.fillText("CLICK RUSH", canvas.width / 2, canvas.height / 3);
+
+  let fontSize2 = window.innerWidth < 600 ? 12 : 18;
+  ctx.font = fontSize2 + "px 'Press Start 2P'";
+
+  ctx.fillText("Presiona 1 - Nivel 1", canvas.width / 2, canvas.height / 2 + 80);
+  ctx.fillText("Presiona 2 - Nivel 2", canvas.width / 2, canvas.height / 2 + 115); 
+  ctx.fillText("Presiona 3 - Nivel 3", canvas.width / 2, canvas.height / 2 + 150);
+  ctx.fillText("Presiona 4 - Nivel 4", canvas.width / 2, canvas.height / 2 + 185);
+  ctx.fillText("Presiona 5 - Nivel 5", canvas.width / 2, canvas.height / 2 + 220);
+  ctx.fillText("Presiona 6 - Nivel 6", canvas.width / 2, canvas.height / 2 + 255);
+  ctx.fillText("Presiona 7 - Nivel 7", canvas.width / 2, canvas.height / 2 + 290);
+
+  return;
+}
+
+if (levelCompleted) {
+  // Dibuja el fondo, mensaje y un "botón" claro
+  ctx.fillStyle = "black";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle = "lime";
+  ctx.textAlign = "center";
+
+  let fontSize = window.innerWidth < 600 ? 20 : 40;
+  ctx.font = fontSize + "px 'Press Start 2P'";
+
+  ctx.fillText("NIVEL COMPLETADO", canvas.width/2, canvas.height/2 - 40);
+
+  // Dibuja el botón
+  const btnWidth = window.innerWidth < 600 ? 200 : 300;
+  const btnHeight = 60;
+  const btnX = canvas.width/2 - btnWidth/2;
+  const btnY = canvas.height/2 + 20;
+  
+  ctx.fillStyle = "#333";
+  ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
+  ctx.strokeStyle = "lime";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
+  
+  ctx.fillStyle = "lime";
+  ctx.font = (window.innerWidth < 600 ? 12 : 16) + "px 'Press Start 2P'";
+  ctx.fillText("SIGUIENTE NIVEL", canvas.width/2, btnY + 40);
+
+  return;
+}
+
+
+
+if (gameOver) {
+  ctx.fillStyle = "red";
+  let fontSize = window.innerWidth < 600 ? 25 : 50;
+ctx.font = fontSize + "px 'Press Start 2P'";
+  ctx.textAlign = "center";
+  ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2);
+}
+
+  }
+
+  function restartGame() {
+  score = 0;
+  timeLeft = 30;
+  gameOver = false;
+  showTarget = true;
+
+  target.x = canvas.width / 2;
+  target.y = canvas.height / 2;
+
+  explosion = null;
+}
+
+  function gameLoop() {
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  function checkHit(x, y) {
+    if (gameOver) return;
+
+    const distance = Math.sqrt(
+      (x - target.x) ** 2 +
+      (y - target.y) ** 2
+    );
+
+    if (distance < target.radius) {
+      score++;
+
+      explosion = {
+        x: target.x,
+        y: target.y,
+        radius: 10
+      };
+
+      target.x = Math.random() * (canvas.width - target.radius * 2) + target.radius;
+      target.y = Math.random() * (canvas.height - target.radius * 2 - topMargin) + target.radius + topMargin;
+    }
+  }
+
+  canvas.addEventListener("click", function(event) {
+
+  if (!gameStarted) {
+
+    const y = event.clientY;
+
+    if (y < canvas.height / 2 + 100) {
+      level = 1;
+      timeLeft = 30;
+
+    } else if (y < canvas.height / 2 + 135) {
+      level = 2;
+      timeLeft = 20;
+
+    } else if (y < canvas.height / 2 + 170) {
+      level = 3;
+      timeLeft = 20;
+
+    } else if (y < canvas.height / 2 + 205) {
+      level = 4;
+      timeLeft = 20;
+
+    } else if (y < canvas.height / 2 + 240) {
+      level = 5;
+      timeLeft = 20;
+
+    } else if (y < canvas.height / 2 + 275) {
+      level = 6;
+      timeLeft = 20;
+    } else {
+      level = 7;
+      timeLeft = 20;
+    }
+
+    gameStarted = true;
+    gameOver = false;
+    score = 0;
+    bullet = null;
+    return;
+  }
+
+  if (gameOver) {
+    restartGame();
+    return;
+  }
+
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+
+  if (levelCompleted) {
+    const btnWidth = window.innerWidth < 600 ? 200 : 300;
+    const btnHeight = 60;
+    const btnX = canvas.width/2 - btnWidth/2;
+    const btnY = canvas.height/2 + 20;
+
+    // Verificar si el clic fue dentro del botón
+    if (x >= btnX && x <= btnX + btnWidth && y >= btnY && y <= btnY + btnHeight) {
+      level++;
+      levelCompleted = false;
+      score = 0;
+      timeLeft = 20;
+      bullet = null;
+      bullet2 = null;
+    }
+    return; // No hacer nada si se hace clic fuera del botón
+  }
+  checkHit(x, y);
+
+});
+
+  canvas.addEventListener("touchstart", function(event) {
+
+  const rect = canvas.getBoundingClientRect();
+  const touch = event.touches[0];
+  const x = touch.clientX - rect.left;
+  const y = touch.clientY - rect.top;
+
+  if (!gameStarted) {
+
+  if (y < canvas.height / 2 + 100) {
+  level = 1;
+  timeLeft = 30;
+
+} else if (y < canvas.height / 2 + 135) {
+  level = 2;
+  timeLeft = 20;
+
+} else if (y < canvas.height / 2 + 170) {
+  level = 3;
+  timeLeft = 20;
+
+} else if (y < canvas.height / 2 + 205) {
+  level = 4;
+  timeLeft = 20;
+
+} else if (y < canvas.height / 2 + 240) {
+  level = 5;
+  timeLeft = 20;
+
+} else if (y < canvas.height / 2 + 275) {
+  level = 6;
+  timeLeft = 20;
+
+} else {
+  level = 7;
+  timeLeft = 20;
+} 
+
+    gameStarted = true;
+    gameOver = false;
+    score = 0;
+    bullet = null;
+    bullet2 = null;
+    bullet3 = null;
+    bullet4 = null;
+    return;
+  }
+  
+  if (levelCompleted) {
+    const btnWidth = window.innerWidth < 600 ? 200 : 300;
+    const btnHeight = 60;
+    const btnX = canvas.width/2 - btnWidth/2;
+    const btnY = canvas.height/2 + 20;
+
+    // Verificar si el toque fue dentro del botón
+    if (x >= btnX && x <= btnX + btnWidth && y >= btnY && y <= btnY + btnHeight) {
+      level++;
+      levelCompleted = false;
+      score = 0;
+      timeLeft = 20;
+      bullet = null;
+      bullet2 = null;
+    }
+    return; // No hacer nada si se toca fuera
+  }
+
+  if (gameOver) {
+    restartGame();
+    return;
+  }
+
+  checkHit(x, y);
+
+});
+
+  resizeCanvas();
+  createStars();
+ 
+setInterval(function() {
+  if (gameStarted && !gameOver && !levelCompleted) {
+  
+    timeLeft--;
+
+    if (timeLeft <= 0) {
+
+  let puntosNecesarios = 20;
+
+  if (score >= puntosNecesarios) {
+
+    levelCompleted = true;
+
+  } else {
+
+    gameOver = true;
+
+    explosion = {
+      x: target.x,
+      y: target.y,
+      radius: 10
+    };
+
+    showTarget = false;
+
+  }
+
+}
+
+  }
+}, 1000);
+
+setInterval(function() {
+
+  if (level >= 2 && gameStarted && !gameOver && !levelCompleted && !bullet) {
+  shootBullet();
+}
+
+  if ((level === 4 || level === 5 || level === 6 || level === 7) && gameStarted && !gameOver && !levelCompleted) {
+
+    const dx = target.x - (enemy2.x + enemy2.width / 2);
+    const dy = target.y - (enemy2.y + enemy2.height / 2);
+
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    const speed = 2;
+
+    bullet2 = {
+      x: enemy2.x + enemy2.width / 2,
+      y: enemy2.y + enemy2.height / 2,
+      vx: (dx / distance) * speed,
+      vy: (dy / distance) * speed
+    };
+
+  }
+
+  if ((level === 6 || level === 7) && gameStarted && !gameOver && !levelCompleted) {
+
+    const dx = target.x - (enemy3.x + enemy3.width / 2);
+    const dy = target.y - (enemy3.y + enemy3.height / 2);
+
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    const speed = 2;
+
+    bullet3 = {
+      x: enemy3.x + enemy3.width / 2,
+      y: enemy3.y + enemy3.height / 2,
+      vx: (dx / distance) * speed,
+      vy: (dy / distance) * speed
+    };
+
+  }
+
+  if (level === 7 && gameStarted && !gameOver && !levelCompleted) {
+
+    const dx = target.x - (enemy4.x + enemy4.width / 2);
+    const dy = target.y - (enemy4.y + enemy4.height / 2);
+
+    const distance = Math.sqrt(dx * dx + dy * dy);
+
+    const speed = 2;
+
+    bullet4 = {
+      x: enemy4.x + enemy4.width / 2,
+      y: enemy4.y + enemy4.height / 2,
+      vx: (dx / distance) * speed,
+      vy: (dy / distance) * speed
+    };
+
+  }
+
+}, 2000);
+
+gameLoop();
+
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js')
+      .then(reg => console.log('Service Worker registrado', reg))
+      .catch(err => console.log('Error al registrar Service Worker', err));
+  });
+}
+</script>
+</body>
+</html>

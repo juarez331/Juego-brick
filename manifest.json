@@ -1,0 +1,17 @@
+{
+  "name": "Click Rush",
+  "short_name": "ClickRush",
+  "description": "Un juego arcade retro de disparo y reflejos.",
+  "start_url": "clickrush_app.html",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#8000ff",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
