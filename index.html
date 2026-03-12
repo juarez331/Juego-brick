@@ -1,0 +1,1607 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Click Rush</title>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  body {
+    margin: 0;
+    background: black;
+    overflow: hidden;
+  }
+
+  canvas {
+    display: block;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<script>
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+
+  let score = 0;
+  let level = 1;
+  let lives = 3;
+  let fallingLives = [];
+  let livesSpawnedThisLevel = 0;
+  let explosion = null;
+  let stars = [];
+
+  // ── SISTEMA DE COMBOS ─────────────────────────────────────────────
+  let comboCount = 0;
+  let comboTimer = 0;
+  let comboMultiplier = 1;
+  const COMBO_MAX_TIME = 120;
+
+  // ── POWER-UPS ─────────────────────────────────────────────────────
+  let powerUps = [];
+  let activePowerUps = {
+    shield: 0,
+    slowMotion: 0,
+    doublePoints: 0
+  };
+  const POWERUP_TYPES = ['shield', 'slow', 'double'];
+  const SHIELD_DURATION = 300;
+  const SLOWMO_DURATION = 180;
+  const DOUBLE_DURATION = 150;
+
+  // ── Objetos de fondo estéticos ──────────────────────────────────
+  let bgComets  = [];   // cometas con cola
+  let bgPlanets = [];   // planetas/asteroides lentos
+  let bgShips   = [];   // naves de fondo que cruzan la pantalla
+  let targetDir = 1;    // Dirección del blanco (Nvl 8+)
+
+  let enemy = { x: 0, y: 60, width: 80, height: 40, direction: 1 };
+  let enemy2 = { x: 20, y: 0, width: 1, height: 40, direction: 1 };
+  let enemy3 = { x: 0, y: 0, width: 1, height: 40, direction: -1 };
+  let enemy4 = { x: 0, y: 0, width: 80, height: 40, direction: 1 };
+
+  let bullets = [];
+  let bullets2 = [];
+  let bullets3 = [];
+  let bullets4 = [];
+  let showTarget = true;
+
+  const target = {
+    x: 0,
+    y: 0,
+    radius: 45,
+    vx: 2, 
+    vy: 2,
+    hitAnim: 0
+  };
+  
+  const topMargin = 80;
+  let timeLeft = 30;
+  let gameOver = false;
+  let levelCompleted = false;
+  let gameStarted = false;
+  let paused = false;
+  let frameCount = 0;
+
+function createStars() {
+  stars = [];
+  for (let i = 0; i < 120; i++) {
+    stars.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      size: Math.random() * 2,
+      speed: Math.random() * 0.5 + 0.2
+    });
+  }
+}
+
+// ── HELPERS: spawn de objetos de fondo ──────────────────────────
+
+function spawnBgComet() {
+  const fromLeft = Math.random() < 0.5;
+  const x = fromLeft ? -20 : canvas.width + 20;
+  const y = Math.random() * canvas.height * 0.7;
+  const speed = 4 + Math.random() * 4;
+  const angle = (Math.random() * 30 - 15) * (Math.PI / 180);
+  const dir = fromLeft ? 1 : -1;
+  
+  // Variedad de tamaños: 60% chicos, 40% grandes
+  const isLarge = Math.random() < 0.4;
+  const size = isLarge ? (8 + Math.random() * 8) : (3 + Math.random() * 3);
+  
+  bgComets.push({
+    x, y,
+    vx: dir * speed * Math.cos(angle),
+    vy: speed * Math.sin(angle) + 1,
+    size: size,
+    tail: [],
+    color: Math.random() < 0.5 ? '#88ccff' : '#ffffaa'
+  });
+}
+
+function spawnBgPlanet() {
+  const fromLeft = Math.random() < 0.5;
+  const r = 50 + Math.random() * 80;
+  const x = fromLeft ? -r : canvas.width + r;
+  const y = 80 + Math.random() * (canvas.height - 160);
+  // Antes 0.12-0.30, ahora 0.60-1.20 (4x más rápido)
+  const speed = 0.6 + Math.random() * 0.6;
+  const hue = Math.floor(Math.random() * 360);
+  const hasRing = Math.random() < 0.4;
+  bgPlanets.push({ x, y, r, vx: fromLeft ? speed : -speed, hue, hasRing });
+}
+
+function spawnBgShip() {
+  const fromLeft = Math.random() < 0.5;
+  const x = fromLeft ? -60 : canvas.width + 60;
+  const y = 100 + Math.random() * (canvas.height - 200);
+  const speed = 2.0 + Math.random() * 2.5; // Un poco más lentas por ser grandes
+  const scale = 0.6 + Math.random() * 0.6; // Significativamente más grandes
+  bgShips.push({
+    x, y,
+    vx: fromLeft ? speed : -speed,
+    scale,
+    color: `hsl(${Math.floor(Math.random()*360)},70%,70%)`
+  });
+}
+
+// ── DRAW: objetos de fondo ───────────────────────────────────────
+
+function drawBgComets() {
+  for (let i = bgComets.length - 1; i >= 0; i--) {
+    const c = bgComets[i];
+    c.tail.unshift({ x: c.x, y: c.y });
+    if (c.tail.length > 18) c.tail.pop();
+
+    // cola degradada
+    for (let t = 0; t < c.tail.length; t++) {
+      const alpha = (1 - t / c.tail.length) * 0.7;
+      ctx.beginPath();
+      ctx.arc(c.tail[t].x, c.tail[t].y, c.size * (1 - t / c.tail.length), 0, Math.PI * 2);
+      ctx.fillStyle = c.color.replace(')', `,${alpha})`).replace('rgb', 'rgba').replace('#', 'rgba(') ;
+      // fallback simple
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = c.color;
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+
+    // núcleo brillante
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, c.size, 0, Math.PI * 2);
+    ctx.shadowBlur = 10;
+    ctx.shadowColor = c.color;
+    ctx.fillStyle = 'white';
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    c.x += c.vx;
+    c.y += c.vy;
+
+    if (c.x < -60 || c.x > canvas.width + 60 || c.y > canvas.height + 60) {
+      bgComets.splice(i, 1);
+    }
+  }
+}
+
+function drawBgPlanets() {
+  for (let i = bgPlanets.length - 1; i >= 0; i--) {
+    const p = bgPlanets[i];
+
+    const ringColor = `hsl(${p.hue},60%,70%)`;
+    const ringTilt  = 0.3;
+
+    // ── 1. Mitad TRASERA del anillo (detrás) ──
+    if (p.hasRing) {
+      ctx.save();
+      ctx.globalAlpha = 0.4;
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = p.r * 0.18; // Grosor levemente aumentado
+      ctx.beginPath();
+      // Radio horizontal de 1.7x a 2.2x | vertical de 0.35x a 0.45x
+      ctx.ellipse(p.x, p.y, p.r * 2.2, p.r * 0.45, ringTilt, Math.PI, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // ── 2. Cuerpo del planeta (Base sólida negra para tapar todo) ──
+    ctx.save();
+    ctx.globalAlpha = 1.0;
+    ctx.fillStyle = "black";
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    // ── 3. Cuerpo del planeta (Habitualmente con degradado) ──
+    const grad = ctx.createRadialGradient(p.x - p.r * 0.3, p.y - p.r * 0.3, p.r * 0.1, p.x, p.y, p.r);
+    grad.addColorStop(0,   `hsl(${p.hue},70%,80%)`);
+    grad.addColorStop(0.5, `hsl(${p.hue},60%,40%)`);
+    grad.addColorStop(1,   `hsl(${p.hue},50%,5%)`);
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // ── 4. Mitad DELANTERA del anillo (encima) ──
+    if (p.hasRing) {
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = ringColor;
+      ctx.lineWidth = p.r * 0.18; // Grosor levemente aumentado
+      ctx.beginPath();
+      // Radio horizontal de 1.7x a 2.2x | vertical de 0.35x a 0.45x
+      ctx.ellipse(p.x, p.y, p.r * 2.2, p.r * 0.45, ringTilt, 0, Math.PI);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    p.x += p.vx;
+    if (p.x < -p.r - 20 || p.x > canvas.width + p.r + 20) {
+      bgPlanets.splice(i, 1);
+    }
+  }
+}
+
+function drawBgShips() {
+  for (let i = bgShips.length - 1; i >= 0; i--) {
+    const s = bgShips[i];
+    ctx.save();
+    ctx.globalAlpha = 0.35;
+    ctx.translate(s.x, s.y);
+    ctx.scale(s.vx > 0 ? s.scale : -s.scale, s.scale);
+
+    // nave pequeña estilizada
+    ctx.shadowBlur = 8;
+    ctx.shadowColor = s.color;
+    ctx.fillStyle = s.color;
+    ctx.beginPath();
+    ctx.moveTo(30, 0);    // punta
+    ctx.lineTo(-15, -12); // ala sup
+    ctx.lineTo(-8, 0);
+    ctx.lineTo(-15, 12);  // ala inf
+    ctx.closePath();
+    ctx.fill();
+
+    // cabina
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.ellipse(8, 0, 7, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // estela del motor
+    ctx.globalAlpha = 0.5;
+    ctx.fillStyle = s.color;
+    ctx.beginPath();
+    ctx.moveTo(-8, -4);
+    ctx.lineTo(-28, 0);
+    ctx.lineTo(-8, 4);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
+    ctx.restore();
+
+    s.x += s.vx;
+    if (s.x < -80 || s.x > canvas.width + 80) {
+      bgShips.splice(i, 1);
+    }
+  }
+}
+
+
+  function startLevel(n) {
+    level = n;
+    score = 0;
+    timeLeft = 21;
+    lives = 3;
+    gameStarted = true;
+    gameOver = false;
+    levelCompleted = false;
+    paused = false;
+    bullets = [];
+    bullets2 = [];
+    bullets3 = [];
+    bullets4 = [];
+    fallingLives = [];
+    livesSpawnedThisLevel = 0;
+    powerUps = [];
+    comboCount = 0;
+    comboTimer = 0;
+    comboMultiplier = 1;
+    activePowerUps = { shield: 0, slowMotion: 0, doublePoints: 0 };
+    frameCount = 0;
+    target.x = canvas.width / 2;
+    target.y = canvas.height / 2;
+    showTarget = true;
+    explosion = null;
+    
+    // Resetear las naves enemigas a sus posiciones iniciales
+    enemy.x = canvas.width / 2 - enemy.width / 2;
+    enemy.y = 60;
+    enemy2.x = 10;
+    enemy2.y = canvas.height / 2;
+    enemy3.x = canvas.width - 20;
+    enemy3.y = canvas.height / 2;
+    enemy4.x = canvas.width / 2 - enemy4.width / 2;
+    enemy4.y = canvas.height - 50;
+  }
+
+  document.addEventListener("keydown", function(e) {
+    if (e.key === "0") {
+      startLevel(10);
+    } else if (e.key >= "1" && e.key <= "9") {
+      startLevel(parseInt(e.key));
+    }
+  });
+
+
+  function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    target.x = canvas.width / 2;
+    target.y = canvas.height / 2;
+    enemy.x = canvas.width / 2 - enemy.width / 2;
+    enemy2.x = 10;
+    enemy2.y = canvas.height / 2;
+    enemy3.x = canvas.width - 20;
+    enemy3.y = canvas.height / 2;
+    enemy4.x = canvas.width / 2 - enemy4.width / 2;
+    enemy4.y = canvas.height - 50;
+
+    bullets = [];
+    bullets2 = [];
+    bullets3 = [];
+    bullets4 = [];
+
+    createStars();
+  }
+
+  window.addEventListener("resize", resizeCanvas);
+
+  function drawBackground() {
+    ctx.fillStyle = "#0a0a0a";
+    ctx.fillStyle = "black";
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+ctx.fillStyle = "white";
+
+stars.forEach(star => {
+  ctx.beginPath();
+  ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+  ctx.fill();
+
+  star.y += star.speed;
+
+  if (star.y > canvas.height) {
+    star.y = 0;
+    star.x = Math.random() * canvas.width;
+    }
+  });
+  }
+
+  function drawTarget() {
+    if (!showTarget) return;
+    
+    const isHit = target.hitAnim > 0;
+    const currentRadius = isHit ? target.radius + 8 : target.radius;
+    
+    // Aura exterior pulsante (o estática)
+    ctx.beginPath();
+    const auraGrad = ctx.createRadialGradient(target.x, target.y, 5, target.x, target.y, currentRadius + 15);
+    if (isHit) {
+      auraGrad.addColorStop(0, "rgba(0, 255, 255, 0.8)");
+      auraGrad.addColorStop(1, "rgba(0, 255, 255, 0)");
+      ctx.shadowColor = "#00ffff";
+      ctx.shadowBlur = 40;
+    } else {
+      auraGrad.addColorStop(0, "rgba(128, 0, 255, 0.4)");
+      auraGrad.addColorStop(1, "rgba(128, 0, 255, 0)");
+      ctx.shadowColor = "#8000ff";
+      ctx.shadowBlur = 20;
+    }
+    ctx.fillStyle = auraGrad;
+    ctx.arc(target.x, target.y, currentRadius + 15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.closePath();
+
+    // Cuerpo del Núcleo
+    ctx.beginPath();
+    const gradient = ctx.createRadialGradient(target.x, target.y, 5, target.x, target.y, currentRadius);
+    if (isHit) {
+      gradient.addColorStop(0, "#ffffff");
+      gradient.addColorStop(0.4, "#00ffff");
+      gradient.addColorStop(1, "#008888");
+    } else {
+      gradient.addColorStop(0, "#ffffff");
+      gradient.addColorStop(0.4, "#ff00ff");
+      gradient.addColorStop(1, "#440088");
+    }
+    ctx.fillStyle = gradient;
+    ctx.arc(target.x, target.y, currentRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = isHit ? "#ffffff" : "rgba(255,255,255,0.3)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.closePath();
+
+    // Centro del Núcleo (energía pura)
+    ctx.beginPath();
+    ctx.fillStyle = "white";
+    ctx.arc(target.x, target.y, isHit ? 15 : 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.closePath();
+
+    ctx.shadowBlur = 0;
+  }
+
+  function drawExplosion() {
+    if (!explosion) return;
+
+    ctx.beginPath();
+    ctx.arc(explosion.x, explosion.y, explosion.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = "cyan";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+    ctx.closePath();
+
+    explosion.radius += 5;
+
+    if (explosion.radius > 60) {
+      explosion = null;
+    }
+  }
+
+  function drawScore() {
+    ctx.fillStyle = "lime";
+    let fontSize = window.innerWidth < 600 ? 12 : 20;
+ctx.font = fontSize + "px 'Press Start 2P'";
+    ctx.textAlign = "left";
+    ctx.fillText("Puntos: " + score, 20, 30);
+  }
+
+  function drawTimer() {
+    ctx.fillStyle = "cyan";
+    let fontSize = window.innerWidth < 600 ? 12 : 20;
+ctx.font = fontSize + "px 'Press Start 2P'";
+    ctx.textAlign = "right";
+    ctx.fillText("Tiempo: " + timeLeft,  canvas.width - 20, 30);
+  }
+
+  function drawGoal() {
+    ctx.fillStyle = "white";
+    let fontSize = window.innerWidth < 600 ? 12 : 20;
+    ctx.font = fontSize + "px 'Press Start 2P'";
+    ctx.textAlign = "right";
+    let targetGoal = (level >= 8) ? 15 : 20;  // niveles 8, 9 y 10 = meta 15
+    ctx.fillText("Meta: " + targetGoal, canvas.width - 20, 60);
+  }
+
+  function drawLevel() {
+  ctx.fillStyle = "yellow";
+  let fontSize = window.innerWidth < 600 ? 12 : 20;
+  ctx.font = fontSize + "px 'Press Start 2P'";
+  ctx.textAlign = "left";
+  ctx.fillText("Nivel: " + level, 20, 60);
+}
+
+function drawLives() {
+  ctx.fillStyle = "orange";
+  let fontSize = window.innerWidth < 600 ? 12 : 20;
+  ctx.font = fontSize + "px 'Press Start 2P'";
+  ctx.textAlign = "left";
+  
+  // Representación temática: Rayos de energía
+  let bars = "";
+  for(let i=0; i<lives; i++) bars += "⚡"; 
+  if (lives === 0) bars = "AGOTADA";
+  
+  ctx.fillText("ENERGÍA: " + bars, 20, 90);
+}
+
+function spawnFallingLife() {
+  if (livesSpawnedThisLevel >= 2) return;
+  
+  fallingLives.push({
+    x: Math.random() * (canvas.width - 40) + 20,
+    y: -50,
+    speed: 3 + Math.random() * 2, // Caída más lenta
+    radius: 25 // Más grande
+  });
+  livesSpawnedThisLevel++;
+}
+
+function drawFallingLives() {
+  for (let i = fallingLives.length - 1; i >= 0; i--) {
+    let fl = fallingLives[i];
+    if (!paused) {
+      fl.y += fl.speed;
+    }
+
+    // Dibujar Célula de Energía (más visual que un simple ⚡)
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(fl.x, fl.y, fl.radius, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(0, 255, 255, 0.3)";
+    ctx.fill();
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = "cyan";
+    
+    // Titileo: El rayo parpadea
+    if (Math.floor(Date.now() / 250) % 2 === 0) {
+      ctx.fillStyle = "cyan";
+      ctx.font = "36px 'Press Start 2P'";
+      ctx.textAlign = "center";
+      ctx.fillText("⚡", fl.x, fl.y + 12);
+    }
+    ctx.restore();
+
+    // Eliminar si sale del canvas
+    if (fl.y > canvas.height + 50) {
+      fallingLives.splice(i, 1);
+    }
+  }
+}
+
+function spawnPowerUp() {
+  if (powerUps.length >= 2) return;
+  
+  const type = POWERUP_TYPES[Math.floor(Math.random() * POWERUP_TYPES.length)];
+  powerUps.push({
+    x: Math.random() * (canvas.width - 60) + 30,
+    y: -40,
+    speed: 2 + Math.random() * 1.5,
+    radius: 28,
+    type: type,
+    pulse: 0
+  });
+}
+
+function drawPowerUps() {
+  for (let i = powerUps.length - 1; i >= 0; i--) {
+    let pu = powerUps[i];
+    if (!paused) {
+      pu.y += pu.speed;
+      pu.pulse += 0.15;
+    }
+    
+    const pulseSize = Math.sin(pu.pulse) * 5;
+    
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(pu.x, pu.y, pu.radius + pulseSize, 0, Math.PI * 2);
+    ctx.globalAlpha = 0.25;
+    
+    let puColor, puIcon;
+    if (pu.type === 'shield') {
+      puColor = '#00ffff';
+      puIcon = '🛡';
+    } else if (pu.type === 'slow') {
+      puColor = '#ffff00';
+      puIcon = '⏱';
+    } else {
+      puColor = '#ff00ff';
+      puIcon = '✦';
+    }
+    
+    ctx.fillStyle = puColor;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = puColor;
+    
+    ctx.font = "28px 'Press Start 2P'";
+    ctx.textAlign = "center";
+    ctx.fillText(puIcon, pu.x, pu.y + 10);
+    
+    ctx.restore();
+    
+    if (pu.y > canvas.height + 50) {
+      powerUps.splice(i, 1);
+    }
+  }
+}
+
+function drawActivePowerUps() {
+  let yOffset = 120;
+  
+  if (activePowerUps.shield > 0) {
+    ctx.fillStyle = "#00ffff";
+    ctx.font = (window.innerWidth < 600 ? 10 : 14) + "px 'Press Start 2P'";
+    ctx.textAlign = "left";
+    ctx.fillText("🛡 ESCUDO: " + Math.ceil(activePowerUps.shield / 60) + "s", 20, yOffset);
+  }
+  
+  if (activePowerUps.slowMotion > 0) {
+    ctx.fillStyle = "#ffff00";
+    ctx.font = (window.innerWidth < 600 ? 10 : 14) + "px 'Press Start 2P'";
+    ctx.textAlign = "left";
+    ctx.fillText("⏱ LENTO: " + Math.ceil(activePowerUps.slowMotion / 60) + "s", 20, yOffset + 25);
+  }
+  
+  if (activePowerUps.doublePoints > 0) {
+    ctx.fillStyle = "#ff00ff";
+    ctx.font = (window.innerWidth < 600 ? 10 : 14) + "px 'Press Start 2P'";
+    ctx.textAlign = "left";
+    ctx.fillText("✦ x2 PUNTOS: " + Math.ceil(activePowerUps.doublePoints / 60) + "s", 20, yOffset + 50);
+  }
+}
+
+function drawCombo() {
+  if (level >= 6 && comboCount > 1) {
+    ctx.save();
+    if (comboCount >= 10) {
+      ctx.fillStyle = "#00ff00";
+      ctx.fillText("COMBO x4! " + comboCount, canvas.width / 2, canvas.height / 2 - 80);
+    } else {
+      ctx.fillStyle = comboTimer > COMBO_MAX_TIME * 0.5 ? "#ffff00" : "#ff6600";
+      ctx.font = (window.innerWidth < 600 ? 14 : 22) + "px 'Press Start 2P'";
+      ctx.textAlign = "center";
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 15;
+      ctx.fillText("COMBO " + comboCount, canvas.width / 2, canvas.height / 2 - 80);
+    }
+    ctx.restore();
+  }
+}
+
+function applyPowerUp(pu) {
+  if (pu.type === 'shield') {
+    activePowerUps.shield = SHIELD_DURATION;
+  } else if (pu.type === 'slow') {
+    activePowerUps.slowMotion = SLOWMO_DURATION;
+  } else if (pu.type === 'double') {
+    activePowerUps.doublePoints = DOUBLE_DURATION;
+  }
+  
+  explosion = {
+    x: pu.x,
+    y: pu.y,
+    radius: 10
+  };
+}
+
+  function drawEnemy() {
+    ctx.save();
+    ctx.translate(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+
+    // Efecto de brillo de motor (azul)
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = "#00f5ff";
+
+    // Alas laterales
+    ctx.fillStyle = "#3333aa";
+    ctx.beginPath();
+    ctx.moveTo(-35, 5);
+    ctx.lineTo(-15, -15);
+    ctx.lineTo(15, -15);
+    ctx.lineTo(35, 5);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cuerpo principal
+    ctx.fillStyle = "#6666ff";
+    ctx.beginPath();
+    ctx.moveTo(0, 20);
+    ctx.lineTo(20, -15);
+    ctx.lineTo(-20, -15);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cabina (vidrio con brillo)
+    ctx.fillStyle = "#00ffff";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 8, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+    
+    // Brillo en la cabina
+    ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.beginPath();
+    ctx.arc(-3, -4, 3, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Motores (luces de neón)
+    ctx.fillStyle = "#00f5ff";
+    ctx.fillRect(-12, -18, 6, 4);
+    ctx.fillRect(6, -18, 6, 4);
+
+    ctx.restore();
+    
+    if (!paused && (level === 3 || level >= 5)) {
+      const spd1 = level >= 10 ? 5 : 3;
+      enemy.x += spd1 * enemy.direction;
+      if (enemy.x + enemy.width > canvas.width || enemy.x < 0) {
+        enemy.direction *= -1;
+      }
+    }
+  }
+
+  function drawEnemy2() {
+    if (level < 4) return;
+
+    ctx.save();
+    ctx.translate(enemy2.x + enemy2.width / 2, enemy2.y + enemy2.height / 2);
+    ctx.rotate(-Math.PI / 2); // Apuntar hacia la derecha (hacia adentro)
+    
+    // Brillo motor (rojo)
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = "#ff0000";
+
+    // Alas agresivas
+    ctx.fillStyle = "#aa0000";
+    ctx.beginPath();
+    ctx.moveTo(0, 25);
+    ctx.lineTo(30, -10);
+    ctx.lineTo(-30, -10);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cuerpo afilado
+    ctx.fillStyle = "#ff4444";
+    ctx.beginPath();
+    ctx.moveTo(0, 30);
+    ctx.lineTo(15, -15);
+    ctx.lineTo(-15, -15);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cabina amarilla
+    ctx.fillStyle = "#ffff00";
+    ctx.beginPath();
+    ctx.arc(0, 5, 7, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    if (!paused) {
+      const spd2 = level >= 10 ? 5 : 3;
+      enemy2.y += spd2 * enemy2.direction;
+      if (enemy2.y < 100 || enemy2.y > canvas.height - 100) {
+        enemy2.direction *= -1;
+      }
+    }
+  }
+
+  function drawEnemy3() {
+    if (level < 6) return;
+
+    ctx.save();
+    ctx.translate(enemy3.x + enemy3.width / 2, enemy3.y + enemy3.height / 2);
+    ctx.rotate(Math.PI / 2); // Apuntar hacia la izquierda (hacia adentro)
+
+    // Brillo neón verde
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = "#00ff00";
+
+    // Estilo nave discoidal / exploradora
+    ctx.fillStyle = "#228822";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 35, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#44ff44";
+    ctx.beginPath();
+    ctx.ellipse(0, -3, 20, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Luces traseras
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(-15, 0, 4, 0, Math.PI * 2);
+    ctx.arc(15, 0, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    if (!paused) {
+      const spd3 = level >= 10 ? 5 : 3;
+      enemy3.y += spd3 * enemy3.direction;
+      if (enemy3.y < 100 || enemy3.y > canvas.height - 100) {
+        enemy3.direction *= -1;
+      }
+    }
+  }
+
+  function drawEnemy4() {
+    if (level < 7) return;
+
+    ctx.save();
+    ctx.translate(enemy4.x + enemy4.width / 2, enemy4.y + enemy4.height / 2);
+    
+    // Brillo motor magenta
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = "#ff00ff";
+
+    // Alas inferiores anchas (apunta hacia arriba)
+    ctx.fillStyle = "#880088";
+    ctx.beginPath();
+    ctx.moveTo(-40, 15);
+    ctx.lineTo(0, -25);
+    ctx.lineTo(40, 15);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cuerpo central pesado
+    ctx.fillStyle = "#ff00ff";
+    ctx.beginPath();
+    ctx.moveTo(-15, 20);
+    ctx.lineTo(0, -30);
+    ctx.lineTo(15, 20);
+    ctx.closePath();
+    ctx.fill();
+
+    // Cabina protegida
+    ctx.fillStyle = "#ffffff";
+    ctx.beginPath();
+    ctx.arc(0, 5, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    if (!paused) {
+      const spd4 = level >= 10 ? 5 : 3;
+      enemy4.x += spd4 * enemy4.direction;
+      if (enemy4.x + enemy4.width > canvas.width || enemy4.x < 0) {
+        enemy4.direction *= -1;
+      }
+    }
+  }
+
+  function shootBullet() {
+  const dx = target.x - (enemy.x + enemy.width / 2);
+  const dy = target.y - (enemy.y + enemy.height / 2);
+  const distance = Math.sqrt(dx * dx + dy * dy);
+  const speed = 5;
+
+  bullets.push({
+    x: enemy.x + enemy.width / 2,
+    y: enemy.y + enemy.height / 2,
+    vx: (dx / distance) * speed,
+    vy: (dy / distance) * speed
+  });
+}
+
+function drawBulletHelper(b, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.arc(b.x, b.y, 6, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+  function drawBullets() {
+
+  for (let i = bullets.length - 1; i >= 0; i--) {
+    let b = bullets[i];
+    drawBulletHelper(b, "yellow");
+
+    if (!paused) {
+      b.x += b.vx;
+      b.y += b.vy;
+    }
+
+    const dist = Math.sqrt((b.x - target.x) ** 2 + (b.y - target.y) ** 2);
+
+    if (dist < target.radius) {
+      if (activePowerUps.shield > 0) {
+        activePowerUps.shield -= 30;
+        bullets.splice(i, 1);
+      } else {
+        score -= 1;
+        comboCount = 0;
+        comboTimer = 0;
+        bullets.splice(i, 1);
+      }
+      continue;
+    }
+
+    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+      bullets.splice(i, 1);
+    }
+  }
+}
+
+
+function drawBullets2() {
+
+  for (let i = bullets2.length - 1; i >= 0; i--) {
+    let b = bullets2[i];
+    drawBulletHelper(b, "red");
+
+    let speedMod = activePowerUps.slowMotion > 0 ? 0.4 : 1;
+    if (!paused) {
+      b.x += b.vx * speedMod;
+      b.y += b.vy * speedMod;
+    }
+
+    const dist = Math.sqrt((b.x - target.x) ** 2 + (b.y - target.y) ** 2);
+
+    if (dist < target.radius) {
+      if (activePowerUps.shield > 0) {
+        activePowerUps.shield -= 30;
+        bullets2.splice(i, 1);
+      } else {
+        score -= 1;
+        comboCount = 0;
+        comboTimer = 0;
+        bullets2.splice(i, 1);
+      }
+      continue;
+    }
+
+    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+      bullets2.splice(i, 1);
+    }
+  }
+}
+
+function drawBullets3() {
+
+  for (let i = bullets3.length - 1; i >= 0; i--) {
+    let b = bullets3[i];
+    drawBulletHelper(b, "lime");
+
+    let speedMod = activePowerUps.slowMotion > 0 ? 0.4 : 1;
+    if (!paused) {
+      b.x += b.vx * speedMod;
+      b.y += b.vy * speedMod;
+    }
+
+    const dist = Math.sqrt((b.x - target.x) ** 2 + (b.y - target.y) ** 2);
+
+    if (dist < target.radius) {
+      if (activePowerUps.shield > 0) {
+        activePowerUps.shield -= 30;
+        bullets3.splice(i, 1);
+      } else {
+        score -= 1;
+        comboCount = 0;
+        comboTimer = 0;
+        bullets3.splice(i, 1);
+      }
+      continue;
+    }
+
+    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+      bullets3.splice(i, 1);
+    }
+  }
+}
+
+function drawBullets4() {
+
+  for (let i = bullets4.length - 1; i >= 0; i--) {
+    let b = bullets4[i];
+    drawBulletHelper(b, "magenta");
+
+    let speedMod = activePowerUps.slowMotion > 0 ? 0.4 : 1;
+    if (!paused) {
+      b.x += b.vx * speedMod;
+      b.y += b.vy * speedMod;
+    }
+
+    const dist = Math.sqrt((b.x - target.x) ** 2 + (b.y - target.y) ** 2);
+
+    if (dist < target.radius) {
+      if (activePowerUps.shield > 0) {
+        activePowerUps.shield -= 30;
+        bullets4.splice(i, 1);
+      } else {
+        score -= 1;
+        comboCount = 0;
+        comboTimer = 0;
+        bullets4.splice(i, 1);
+      }
+      continue;
+    }
+
+    if (b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+      bullets4.splice(i, 1);
+    }
+  }
+}
+
+function drawPauseButton() {
+  const btnSize = window.innerWidth < 600 ? 32 : 40;
+  const btnX = canvas.width - btnSize - 15;
+  const btnY = 75;
+  
+  ctx.save();
+  ctx.fillStyle = "rgba(255, 50, 50, 0.25)";
+  ctx.fillRect(btnX, btnY, btnSize, btnSize);
+  ctx.strokeStyle = "#ff3333";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(btnX, btnY, btnSize, btnSize);
+  
+  ctx.fillStyle = "#ff5555";
+  ctx.shadowColor = "#ff0000";
+  ctx.shadowBlur = 8;
+  ctx.font = (window.innerWidth < 600 ? 14 : 18) + "px 'Press Start 2P'";
+  ctx.textAlign = "center";
+  ctx.fillText("||", btnX + btnSize/2, btnY + btnSize/2 + 5);
+  ctx.restore();
+}
+
+function drawPauseScreen() {
+  ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  ctx.fillStyle = "yellow";
+  let fontSize = window.innerWidth < 600 ? 28 : 42;
+  ctx.font = fontSize + "px 'Press Start 2P'";
+  ctx.textAlign = "center";
+  ctx.fillText("PAUSA", canvas.width / 2, canvas.height / 2 - 40);
+  
+  const btnWidth = window.innerWidth < 600 ? 180 : 260;
+  const btnHeight = 55;
+  const btnX = canvas.width/2 - btnWidth/2;
+  const btnY = canvas.height/2 + 20;
+  
+  ctx.fillStyle = "#333";
+  ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
+  ctx.strokeStyle = "lime";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
+  
+  ctx.fillStyle = "lime";
+  ctx.font = (window.innerWidth < 600 ? 12 : 16) + "px 'Press Start 2P'";
+  ctx.fillText("CONTINUAR", canvas.width/2, btnY + 37);
+}
+
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Dibujar fondo decorativo SIEMPRE
+    drawBackground();
+    
+    // START SCREEN - when game hasn't started
+    if (!gameStarted) {
+      // Dibuja los objetos decorativos de fondo
+      drawBgPlanets();
+      drawBgComets();
+      drawBgShips();
+      
+      // CLICK RUSH título
+      ctx.fillStyle = "white";
+      let fontSize = window.innerWidth < 600 ? 20 : 36;
+      ctx.font = fontSize + "px 'Press Start 2P'";
+      ctx.textAlign = "center";
+      ctx.shadowColor = "cyan";
+      ctx.shadowBlur = 15;
+      ctx.fillText("CLICK RUSH", canvas.width / 2, canvas.height / 5);
+      ctx.shadowBlur = 0;
+
+      // Instrucciones de misión
+      let fontSizeInstr = window.innerWidth < 600 ? 12 : 16;
+      ctx.font = fontSizeInstr + "px 'Press Start 2P'";
+      ctx.fillStyle = "#aaa";
+      ctx.fillText("MISIÓN: CARGA EL NÚCLEO", canvas.width / 2, canvas.height / 5 + 70);
+      ctx.fillText("Hacé click para recolectar energía", canvas.width / 2, canvas.height / 5 + 105);
+      
+      ctx.fillStyle = "#f55";
+      ctx.fillText("¡CUIDADO! Las balas", canvas.width / 2, canvas.height / 5 + 140);
+      ctx.fillText("drenan tu energía", canvas.width / 2, canvas.height / 5 + 170);
+
+      // Selector de niveles
+      let fontSize2 = window.innerWidth < 600 ? 12 : 18;
+      ctx.font = fontSize2 + "px 'Press Start 2P'";
+      ctx.fillStyle = "yellow";
+      ctx.fillText("-- SELECCIONA TU NIVEL --", canvas.width / 2, canvas.height / 2 + 30);
+
+      const menuItems = [
+        "Presiona 1 - Nivel 1",
+        "Presiona 2 - Nivel 2",
+        "Presiona 3 - Nivel 3",
+        "Presiona 4 - Nivel 4",
+        "Presiona 5 - Nivel 5",
+        "Presiona 6 - Nivel 6",
+        "Presiona 7 - Nivel 7",
+        "Presiona 8 - Nivel 8",
+        "Presiona 9 - Nivel 9",
+        "Presiona 0 - Nivel 10"
+      ];
+
+      ctx.textAlign = "left";
+      const longestW = ctx.measureText("Presiona 0 - Nivel 10").width;
+      const startX = canvas.width / 2 - longestW / 2;
+      const baseY = canvas.height / 2 + 70;
+
+      menuItems.forEach((text, i) => {
+        ctx.fillStyle = (i >= 7) ? "#f88" : "white";
+        ctx.fillText(text, startX, baseY + (i * 30));
+      });
+      return;
+    }
+
+    // LEVEL COMPLETED SCREEN
+    if (levelCompleted) {
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "lime";
+      ctx.textAlign = "center";
+      
+      let fontSize = window.innerWidth < 600 ? 20 : 40;
+      ctx.font = fontSize + "px 'Press Start 2P'";
+      ctx.fillText("NIVEL COMPLETADO", canvas.width / 2, canvas.height / 2 - 40);
+      
+      const btnWidth = window.innerWidth < 600 ? 200 : 300;
+      const btnHeight = 60;
+      const btnX = canvas.width / 2 - btnWidth / 2;
+      const btnY = canvas.height / 2 + 20;
+      
+      ctx.fillStyle = "#333";
+      ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
+      ctx.strokeStyle = "lime";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
+      
+      ctx.fillStyle = "lime";
+      ctx.font = (window.innerWidth < 600 ? 12 : 16) + "px 'Press Start 2P'";
+      ctx.fillText("SIGUIENTE NIVEL", canvas.width / 2, btnY + 40);
+      return;
+    }
+
+    // GAME OVER SCREEN
+    if (gameOver) {
+      ctx.fillStyle = "black";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = "center";
+      
+      if (lives > 0) {
+        ctx.fillStyle = "red";
+        let fontSize = window.innerWidth < 600 ? 25 : 50;
+        ctx.font = fontSize + "px 'Press Start 2P'";
+        ctx.fillText("GAME OVER", canvas.width / 2, canvas.height / 2 - 40);
+        
+        ctx.fillStyle = "orange";
+        ctx.font = (window.innerWidth < 600 ? 10 : 14) + "px 'Press Start 2P'";
+        ctx.fillText("VIDAS RESTANTES: " + lives, canvas.width / 2, canvas.height / 2 + 140);
+        
+        const btnWidth = window.innerWidth < 600 ? 200 : 300;
+        const btnHeight = 60;
+        const btnX = canvas.width / 2 - btnWidth / 2;
+        const btnY = canvas.height / 2 + 20;
+        
+        ctx.fillStyle = "#331111";
+        ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
+        
+        ctx.fillStyle = "red";
+        ctx.font = (window.innerWidth < 600 ? 12 : 16) + "px 'Press Start 2P'";
+        ctx.fillText("REINTENTAR", canvas.width / 2, btnY + 40);
+      } else {
+        ctx.fillStyle = "#ff0000";
+        let fontSize = window.innerWidth < 600 ? 20 : 40;
+        ctx.font = fontSize + "px 'Press Start 2P'";
+        ctx.fillText("DERROTA TOTAL", canvas.width / 2, canvas.height / 2 - 40);
+        
+        ctx.fillStyle = "#aaa";
+        ctx.font = (window.innerWidth < 600 ? 10 : 14) + "px 'Press Start 2P'";
+        ctx.fillText("TE HAS QUEDADO SIN ENERGÍA", canvas.width / 2, canvas.height / 2 + 140);
+        
+        const btnWidth = window.innerWidth < 600 ? 260 : 400;
+        const btnHeight = 60;
+        const btnX = canvas.width / 2 - btnWidth / 2;
+        const btnY = canvas.height / 2 + 20;
+        
+        ctx.fillStyle = "#330000";
+        ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
+        
+        ctx.fillStyle = "white";
+        ctx.font = (window.innerWidth < 600 ? 10 : 14) + "px 'Press Start 2P'";
+        ctx.fillText("VOLVER AL NIVEL 1", canvas.width / 2, btnY + 40);
+      }
+      return;
+    }
+
+    // GAMEPLAY SCREEN
+    drawBgPlanets();
+    drawBgComets();
+    drawBgShips();
+    drawTarget();
+    drawExplosion();
+    drawScore();
+    drawTimer();
+    drawLevel();
+    drawLives();
+    drawFallingLives();
+    drawPowerUps();
+    drawActivePowerUps();
+    drawCombo();
+    
+    // Shield visual effect
+    if (activePowerUps.shield > 0) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(target.x, target.y, target.radius + 20, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(0, 255, 255, ${0.3 + Math.sin(Date.now() / 100) * 0.2})`;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    drawEnemy();
+    drawEnemy2();
+    drawEnemy3();
+    drawEnemy4();
+    drawBullets();
+    drawBullets2();
+    drawBullets3();
+    drawBullets4();
+
+    // Pause button
+    drawPauseButton();
+
+    // Pause overlay
+    if (paused) {
+      drawPauseScreen();
+    }
+  }
+
+
+
+  function gameLoop() {
+    if (!paused) {
+      if (gameStarted && !gameOver && !levelCompleted && level >= 8) {
+        let targetSpeed = (level === 10) ? 3.5 : 2;
+        if (activePowerUps.slowMotion > 0) targetSpeed *= 0.5;
+        target.x += targetSpeed * targetDir;
+        if (target.x > canvas.width - target.radius || target.x < target.radius) {
+          targetDir *= -1;
+        }
+
+        if (livesSpawnedThisLevel < 2 && Math.random() < 0.005) {
+          spawnFallingLife();
+        }
+        
+        if (level >= 6 && powerUps.length < 2 && Math.random() < 0.003) {
+          spawnPowerUp();
+        }
+      }
+
+      if (gameStarted && !gameOver && !levelCompleted) {
+        if (comboTimer > 0) comboTimer--;
+        if (comboTimer === 0) comboCount = 0;
+        
+        if (activePowerUps.shield > 0) activePowerUps.shield--;
+        if (activePowerUps.slowMotion > 0) activePowerUps.slowMotion--;
+        if (activePowerUps.doublePoints > 0) activePowerUps.doublePoints--;
+      }
+
+      if (target.hitAnim > 0) target.hitAnim--;
+      
+      frameCount++;
+      if (frameCount % 120 === 0) {
+        if (level >= 1 && level < 8) {
+          if (level === 1 && Math.random() > 0.5) {} else {
+            shootBullet();
+            if (level >= 4) {
+              let dx = target.x - (enemy2.x + enemy2.width/2), dy = target.y - (enemy2.y + enemy2.height/2), d = Math.sqrt(dx*dx+dy*dy);
+              bullets2.push({ x: enemy2.x + enemy2.width/2, y: enemy2.y + enemy2.height/2, vx: (dx/d)*5, vy: (dy/d)*5 });
+            }
+            if (level >= 6) {
+              let dx = target.x - (enemy3.x + enemy3.width/2), dy = target.y - (enemy3.y + enemy3.height/2), d = Math.sqrt(dx*dx+dy*dy);
+              bullets3.push({ x: enemy3.x + enemy3.width/2, y: enemy3.y + enemy3.height/2, vx: (dx/d)*5, vy: (dy/d)*5 });
+            }
+            if (level >= 7) {
+              let dx = target.x - (enemy4.x + enemy4.width/2), dy = target.y - (enemy4.y + enemy4.height/2), d = Math.sqrt(dx*dx+dy*dy);
+              bullets4.push({ x: enemy4.x + enemy4.width/2, y: enemy4.y + enemy4.height/2, vx: (dx/d)*5, vy: (dy/d)*5 });
+            }
+          }
+        }
+      }
+      
+      if (level === 8 && frameCount % 90 === 0) {
+        shootBullet();
+        let dx = target.x - (enemy2.x + enemy2.width/2), dy = target.y - (enemy2.y + enemy2.height/2), d = Math.sqrt(dx*dx+dy*dy);
+        bullets2.push({ x: enemy2.x + enemy2.width/2, y: enemy2.y + enemy2.height/2, vx: (dx/d)*5, vy: (dy/d)*5 });
+        dx = target.x - (enemy3.x + enemy3.width/2); dy = target.y - (enemy3.y + enemy3.height/2); d = Math.sqrt(dx*dx+dy*dy);
+        bullets3.push({ x: enemy3.x + enemy3.width/2, y: enemy3.y + enemy3.height/2, vx: (dx/d)*5, vy: (dy/d)*5 });
+        dx = target.x - (enemy4.x + enemy4.width/2); dy = target.y - (enemy4.y + enemy4.height/2); d = Math.sqrt(dx*dx+dy*dy);
+        bullets4.push({ x: enemy4.x + enemy4.width/2, y: enemy4.y + enemy4.height/2, vx: (dx/d)*5, vy: (dy/d)*5 });
+      }
+      
+      if (level === 9 && frameCount % 60 === 0) {
+        shootBullet();
+        let dx = target.x - (enemy2.x + enemy2.width/2), dy = target.y - (enemy2.y + enemy2.height/2), d = Math.sqrt(dx*dx+dy*dy);
+        bullets2.push({ x: enemy2.x + enemy2.width/2, y: enemy2.y + enemy2.height/2, vx: (dx/d)*5, vy: (dy/d)*5 });
+        dx = target.x - (enemy3.x + enemy3.width/2); dy = target.y - (enemy3.y + enemy3.height/2); d = Math.sqrt(dx*dx+dy*dy);
+        bullets3.push({ x: enemy3.x + enemy3.width/2, y: enemy3.y + enemy3.height/2, vx: (dx/d)*5, vy: (dy/d)*5 });
+        dx = target.x - (enemy4.x + enemy4.width/2); dy = target.y - (enemy4.y + enemy4.height/2); d = Math.sqrt(dx*dx+dy*dy);
+        bullets4.push({ x: enemy4.x + enemy4.width/2, y: enemy4.y + enemy4.height/2, vx: (dx/d)*5, vy: (dy/d)*5 });
+      }
+      
+      if (level === 10 && frameCount % 36 === 0) {
+        shootBullet();
+        let dx = target.x - (enemy2.x + enemy2.width/2), dy = target.y - (enemy2.y + enemy2.height/2), d = Math.sqrt(dx*dx+dy*dy);
+        bullets2.push({ x: enemy2.x + enemy2.width/2, y: enemy2.y + enemy2.height/2, vx: (dx/d)*6, vy: (dy/d)*6 });
+        dx = target.x - (enemy3.x + enemy3.width/2); dy = target.y - (enemy3.y + enemy3.height/2); d = Math.sqrt(dx*dx+dy*dy);
+        bullets3.push({ x: enemy3.x + enemy3.width/2, y: enemy3.y + enemy3.height/2, vx: (dx/d)*6, vy: (dy/d)*6 });
+        dx = target.x - (enemy4.x + enemy4.width/2); dy = target.y - (enemy4.y + enemy4.height/2); d = Math.sqrt(dx*dx+dy*dy);
+        bullets4.push({ x: enemy4.x + enemy4.width/2, y: enemy4.y + enemy4.height/2, vx: (dx/d)*6, vy: (dy/d)*6 });
+      }
+    }
+
+    draw();
+    requestAnimationFrame(gameLoop);
+  }
+
+  function checkHit(x, y) {
+    if (gameOver || !gameStarted || levelCompleted) return;
+
+    // Revisar power-ups primero
+    for (let i = powerUps.length - 1; i >= 0; i--) {
+      let pu = powerUps[i];
+      let dist = Math.sqrt((x - pu.x)**2 + (y - pu.y)**2);
+      if (dist < pu.radius + 20) {
+        applyPowerUp(pu);
+        powerUps.splice(i, 1);
+        return;
+      }
+    }
+
+    // Revisar Célula de Energía
+    for (let i = fallingLives.length - 1; i >= 0; i--) {
+      let fl = fallingLives[i];
+      let dist = Math.sqrt((x - fl.x)**2 + (y - fl.y)**2);
+      if (dist < fl.radius + 20) {
+        lives++;
+        fallingLives.splice(i, 1);
+        return;
+      }
+    }
+
+    const distance = Math.sqrt(
+      (x - target.x) ** 2 +
+      (y - target.y) ** 2
+    );
+
+    if (distance < target.radius) {
+      if (level >= 6) {
+        comboCount++;
+        comboTimer = COMBO_MAX_TIME;
+        
+        let points = (comboCount >= 10) ? 4 : 1;
+        if (activePowerUps.doublePoints > 0) {
+          points *= 2;
+        }
+        score += points;
+      } else {
+        score++;
+      }
+      
+      target.hitAnim = 10;
+
+      explosion = {
+        x: target.x,
+        y: target.y,
+        radius: 10
+      };
+
+      target.x = Math.random() * (canvas.width - target.radius * 2) + target.radius;
+      target.y = Math.random() * (canvas.height - target.radius * 2 - topMargin) + target.radius + topMargin;
+    }
+  }
+
+  canvas.addEventListener("click", function(event) {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+
+    // Pause screen
+    if (paused) {
+      const btnWidth = window.innerWidth < 600 ? 180 : 260;
+      const btnHeight = 55;
+      const btnX = canvas.width / 2 - btnWidth / 2;
+      const btnY = canvas.height / 2 + 20;
+      
+      if (x >= btnX && x <= btnX + btnWidth && y >= btnY && y <= btnY + btnHeight) {
+        paused = false;
+      }
+      return;
+    }
+
+    // Start screen - check level selection
+    if (!gameStarted) {
+      // Levels are drawn at: baseY + (i * 30) where baseY = canvas.height / 2 + 70
+      // Nivel 1 at Y = canvas.height/2 + 70
+      // Nivel 2 at Y = canvas.height/2 + 100
+      // Nivel 3 at Y = canvas.height/2 + 130
+      // etc.
+      // With 30px spacing, detection zones are approximately 15px above and below each line
+      
+      const baseY = canvas.height / 2 + 70;
+      const itemSpacing = 30;
+      const tolerance = 15; // pixels above/below each line to detect click
+      
+      for (let i = 0; i < 10; i++) {
+        const itemY = baseY + (i * itemSpacing);
+        if (Math.abs(y - itemY) <= tolerance) {
+          startLevel(i + 1);
+          return;
+        }
+      }
+      return;
+    }
+
+    // Game Over screen
+    if (gameOver) {
+      if (lives > 0) {
+        const btnWidth = window.innerWidth < 600 ? 200 : 300;
+        const btnHeight = 60;
+        const btnX = canvas.width / 2 - btnWidth / 2;
+        const btnY = canvas.height / 2 + 20;
+
+        if (x >= btnX && x <= btnX + btnWidth && y >= btnY && y <= btnY + btnHeight) {
+          startLevel(level);
+        }
+      } else {
+        const btnWidth = window.innerWidth < 600 ? 260 : 400;
+        const btnHeight = 60;
+        const btnX = canvas.width / 2 - btnWidth / 2;
+        const btnY = canvas.height / 2 + 20;
+
+        if (x >= btnX && x <= btnX + btnWidth && y >= btnY && y <= btnY + btnHeight) {
+          startLevel(1);
+        }
+      }
+      return;
+    }
+
+    // Level Completed screen
+    if (levelCompleted) {
+      const btnWidth = window.innerWidth < 600 ? 200 : 300;
+      const btnHeight = 60;
+      const btnX = canvas.width / 2 - btnWidth / 2;
+      const btnY = canvas.height / 2 + 20;
+
+      if (x >= btnX && x <= btnX + btnWidth && y >= btnY && y <= btnY + btnHeight) {
+        startLevel(level + 1);
+      }
+      return;
+    }
+
+    // Pause button in gameplay
+    const btnSize = window.innerWidth < 600 ? 32 : 40;
+    const btnX = canvas.width - btnSize - 15;
+    const btnY = 75;
+    if (x >= btnX && x <= btnX + btnSize && y >= btnY && y <= btnY + btnSize) {
+      paused = true;
+      return;
+    }
+
+    // Target click
+    checkHit(x, y);
+  });
+
+  canvas.addEventListener("touchstart", function(event) {
+    const rect = canvas.getBoundingClientRect();
+    const touch = event.touches[0];
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+
+    // Pause screen
+    if (paused) {
+      const btnWidth = window.innerWidth < 600 ? 180 : 260;
+      const btnHeight = 55;
+      const btnX = canvas.width / 2 - btnWidth / 2;
+      const btnY = canvas.height / 2 + 20;
+      
+      if (x >= btnX && x <= btnX + btnWidth && y >= btnY && y <= btnY + btnHeight) {
+        paused = false;
+      }
+      return;
+    }
+
+    // Start screen - check level selection
+    if (!gameStarted) {
+      // Levels are drawn at: baseY + (i * 30) where baseY = canvas.height / 2 + 70
+      const baseY = canvas.height / 2 + 70;
+      const itemSpacing = 30;
+      const tolerance = 15; // pixels above/below each line to detect click
+      
+      for (let i = 0; i < 10; i++) {
+        const itemY = baseY + (i * itemSpacing);
+        if (Math.abs(y - itemY) <= tolerance) {
+          startLevel(i + 1);
+          return;
+        }
+      }
+      return;
+    }
+
+    // Game Over screen
+    if (gameOver) {
+      if (lives > 0) {
+        const btnWidth = window.innerWidth < 600 ? 200 : 300;
+        const btnHeight = 60;
+        const btnX = canvas.width / 2 - btnWidth / 2;
+        const btnY = canvas.height / 2 + 20;
+
+        if (x >= btnX && x <= btnX + btnWidth && y >= btnY && y <= btnY + btnHeight) {
+          startLevel(level);
+        }
+      } else {
+        const btnWidth = window.innerWidth < 600 ? 260 : 400;
+        const btnHeight = 60;
+        const btnX = canvas.width / 2 - btnWidth / 2;
+        const btnY = canvas.height / 2 + 20;
+
+        if (x >= btnX && x <= btnX + btnWidth && y >= btnY && y <= btnY + btnHeight) {
+          startLevel(1);
+        }
+      }
+      return;
+    }
+
+    // Level Completed screen
+    if (levelCompleted) {
+      const btnWidth = window.innerWidth < 600 ? 200 : 300;
+      const btnHeight = 60;
+      const btnX = canvas.width / 2 - btnWidth / 2;
+      const btnY = canvas.height / 2 + 20;
+
+      if (x >= btnX && x <= btnX + btnWidth && y >= btnY && y <= btnY + btnHeight) {
+        startLevel(level + 1);
+      }
+      return;
+    }
+
+    // Pause button in gameplay
+    const btnSize = window.innerWidth < 600 ? 32 : 40;
+    const btnX = canvas.width - btnSize - 15;
+    const btnY = 75;
+    if (x >= btnX && x <= btnX + btnSize && y >= btnY && y <= btnY + btnSize) {
+      paused = true;
+      return;
+    }
+
+    // Target click
+    checkHit(x, y);
+  });
+
+  resizeCanvas();
+  createStars();
+ 
+setInterval(function() {
+  if (gameStarted && !gameOver && !levelCompleted && !paused) {
+  
+    timeLeft--;
+
+    if (timeLeft <= 0) {
+      let puntosNecesarios = (level >= 8) ? 15 : 20;  // 8, 9 y 10 → meta 15
+      if (score >= puntosNecesarios) {
+        levelCompleted = true;
+      } else {
+        lives--;
+        gameOver = true;
+        
+        explosion = {
+          x: target.x,
+          y: target.y,
+          radius: 10
+        };
+        showTarget = false;
+      }
+    }
+
+  }
+}, 1000);
+
+setInterval(function() {
+  if (!gameStarted || gameOver || levelCompleted || paused) return;
+  if (level >= 6 && Math.random() < 0.3) spawnPowerUp();
+}, 8000);
+
+gameLoop();
+</script>
+</body>
+</html>
